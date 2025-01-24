@@ -132,6 +132,9 @@ jobs:
             core.info(`✅ Created release "${response.data.name}" at ${response.data.html_url}`);
 
   build:
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     uses: './.github/workflows/build.yml'
     needs:
       - 'create-release'
