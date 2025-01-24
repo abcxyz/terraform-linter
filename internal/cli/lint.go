@@ -18,15 +18,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/abcxyz/pkg/cli"
-	"github.com/abcxyz/terraform-linter/internal/terraformlinter"
 	"github.com/posener/complete/v2"
 	"github.com/posener/complete/v2/predict"
+
+	"github.com/abcxyz/pkg/cli"
+	"github.com/abcxyz/terraform-linter/internal/terraformlinter"
 )
 
 var _ cli.Command = (*LintCommand)(nil)
 
-// LintCommand lints terraform configurations
+// LintCommand lints terraform configurations.
 type LintCommand struct {
 	cli.BaseCommand
 }

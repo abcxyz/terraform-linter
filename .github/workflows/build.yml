@@ -74,7 +74,7 @@ jobs:
       PLATFORM: '${{ matrix.goos }}/${{ matrix.goarch }}'
       BINARY_NAME: '${{ matrix.build.name }}'
       BINARY_FILENAME: |-
-        ${{ matrix.build.name }}_${{ inputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ (matrix.goos == 'windows' && '.exe') || '' }}
+        ${{ matrix.build.name }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ (matrix.goos == 'windows' && '.exe') || '' }}
       PACKAGE: '${{ matrix.build.package }}'
       VERSION: '${{ inputs.version }}'
     steps:
