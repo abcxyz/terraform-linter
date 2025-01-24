@@ -14,6 +14,9 @@
 
 name: 'terraform-linter'
 description: 'Lint Terraform configurations against the abcxyz style guide.'
+branding:
+  icon: 'align-justify'
+  color: 'purple'
 inputs:
   directory:
     description: 'Directory to lint'
@@ -33,10 +36,14 @@ runs:
       name: 'Download abcxyz/terraform-linter'
       shell: 'bash'
       env:
+        GH_TOKEN: '${{ github.token }}' # for the gh CLI
         VERSION: '${{ inputs.version }}'
       run: |-
+        set -eEuo pipefail
+        set -x
+
         # Create a unique output file outside of the checkout.
-        BINARY_PATH="${RUNNER_TEMP}/terraform-linter"
+        BINARY_PATH="${RUNNER_TEMP}/terraform-linter-${GITHUB_SHA:0:7}"
 
         OS=""
         if [[ "${RUNNER_OS}" == "Linux" ]]; then
@@ -61,18 +68,16 @@ runs:
           exit 1
         fi
 
-        URL="https://github.com/abcxyz/terraform-linter/releases/download/${VERSION}/terraform-linter_${OS}_${ARCH}"
+        TAG="${VERSION}"
         if [[ "${VERSION}" == "latest" ]]; then
-          URL="https://github.com/abcxyz/terraform-linter/releases/latest/download/terraform-linter_${OS}_${ARCH}"
+          TAG="" # intentionally empty
+        elif [[ "${VERSION:0:1}" != "v" ]]; then
+          TAG="v${VERSION}"
         fi
 
-        # Download the file, passing in authentication to get a higher rate limit
-        # limit: https://docs.github.com/en/rest/overview/resources-in-the-rest-api?apiVersion=2022-11-28#rate-limits-for-requests-from-github-actions
-        curl "${URL}" \
-          --silent \
-          --fail \
-          --location \
-          --header "Authorization: Token ${{ github.token }}" \
+        # Download the file
+        gh --repo abcxyz/terraform-linter release download \
+          --pattern "terraform-linter_${OS}_${ARCH}*" \
           --output "${BINARY_PATH}"
 
         # Mark as executable
