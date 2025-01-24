@@ -1,0 +1,30 @@
+#
+# TODO, WIP
+#
+
+name: 'terraform-linter'
+description: 'Lint Terraform configurations against the abcxyz style guide.'
+inputs:
+  directory:
+    description: 'Directory with Terraform files to lint'
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - id: 'checkout-pkg'
+      uses: 'actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b' # ratchet:actions/checkout@v4
+      with:
+        repository: 'abcxyz/pkg'
+        path: 'abcxyz-pkg'
+
+    - id: 'setup-go'
+      uses: 'actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7' # ratchet:actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - id: 'run-linter'
+      shell: 'bash'
+      working-directory: 'abcxyz-pkg'
+      run: |-
+        go run ./cmd/terraform-linter ${GITHUB_WORKSPACE}/${{inputs.directory}}

@@ -1,0 +1,8 @@
+# Default fallback
+*    @abcxyz/breakglass
+
+# infrastructure owns all files
+*    @abcxyz/infrastructure-team
+
+# readability
+*.go      @abcxyz/go-readability
