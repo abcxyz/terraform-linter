@@ -19,6 +19,5 @@ jobs:
   lint:
     uses: 'abcxyz/terraform-linter@main'
     with:
-      terraform_version: '1.2'
-      directory: './terraform'
+      paths: './terraform'
 ```

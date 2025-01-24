@@ -172,27 +172,7 @@ jobs:
       - name: 'Compress and compute checksums'
         run: |-
           cd dist/
-
-          for BINARY in $(find * -type f); do
-            chmod +x "${BINARY}"
-
-            FOLDER="$(basename "${BINARY}" ".exe")"
-            NAME="${BINARY%%_*}"
-
-            if [ "${FOLDER}" != "${BINARY}" ]; then
-              NAME="${NAME}.exe"
-            fi
-
-            mv "${BINARY}" "${BINARY}.tmp"
-            mkdir "${FOLDER}"
-            mv "${BINARY}.tmp" "${FOLDER}/${NAME}"
-
-            (zip -9 -o -m -r -q "${FOLDER}.zip" "${FOLDER}" && \
-              rm -rf "${FOLDER}") &
-          done
-          wait
-
-          FILES="$(find * -name '*.zip')"
+          FILES="$(find * -type f)"
           sha256sum ${FILES} > SHA256SUMS
           sha512sum ${FILES} > SHA512SUMS
 
