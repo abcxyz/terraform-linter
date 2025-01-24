@@ -15,7 +15,7 @@ scope:
         assertion.workflow_ref.startsWith('abcxyz/terraform-linter/.github/workflows/draft-release.yml') &&
         assertion.event_name == 'workflow_dispatch'
     repositories:
-      - 'pkg'
+      - 'terraform-linter'
     permissions:
       contents: 'write'
       pull_requests: 'write'
@@ -26,6 +26,6 @@ scope:
         assertion.job_workflow_ref.startsWith('abcxyz/terraform-linter/.github/workflows/release.yml') &&
         assertion.event_name == 'push'
     repositories:
-      - 'pkg'
+      - 'terraform-linter'
     permissions:
       contents: 'write'
