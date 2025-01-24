@@ -38,11 +38,17 @@ jobs:
   go-test:
     uses: 'abcxyz/pkg/.github/workflows/go-test.yml@main' # ratchet:exclude
 
-#   linter-test:
-#     runs-on: 'ubuntu-latest'
-#     steps:
-#       - uses: 'actions/checkout@v4'
-#
-#       - uses: abcxyz/terraform-linter@${{ github.sha }}
-#         with:
-#           paths: 'testdata/terraform'
+  linter-test:
+    strategy:
+      matrix:
+        os:
+          - 'macos-latest'
+          # - 'ubuntu-24.04-arm' # not supported on private repos
+          - 'ubuntu-latest'
+    runs-on: '${{ matrix.os }}'
+    steps:
+      - uses: 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' # ratchet:actions/checkout@v4
+
+      - uses: './'
+        with:
+          paths: 'testdata/terraform'
