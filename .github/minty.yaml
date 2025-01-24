@@ -5,7 +5,6 @@ rule:
     assertion.iss == issuers.github &&
     assertion.repository_owner_id == '93787867' &&
     assertion.repository_id == '921772696' &&
-    assertion.workflow_ref == assertion.job_workflow_ref &&
     assertion.ref == 'refs/heads/main'
 
 scope:
@@ -29,3 +28,4 @@ scope:
       - 'terraform-linter'
     permissions:
       contents: 'write'
+      workflows: 'write'
