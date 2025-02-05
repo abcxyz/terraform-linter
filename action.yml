@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: 'terraform-linter'
+name: 'abcxyz-terraform-linter'
 description: 'Lint Terraform configurations against the abcxyz style guide.'
 branding:
   icon: 'align-justify'
