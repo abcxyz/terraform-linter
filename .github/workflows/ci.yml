@@ -38,6 +38,14 @@ jobs:
   go-test:
     uses: 'abcxyz/pkg/.github/workflows/go-test.yml@main' # ratchet:exclude
 
+  shell-lint:
+    runs-on: 'ubuntu-latest'
+    steps:
+      - uses: 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' # ratchet:actions/checkout@v4
+      - name: 'Lint Shell'
+        run: |-
+          find . -type f -name "*.sh" -exec shellcheck {} +
+
   linter-test:
     strategy:
       matrix:
