@@ -40,7 +40,10 @@ runs:
         VERSION: '${{ inputs.version }}'
       run: |-
         set -eEuo pipefail
-        set -x
+
+        if [[ -z "${ACTIONS_STEP_DEBUG:-}" ]]; then
+          set -x
+        fi
 
         # Create a unique output file outside of the checkout.
         BINARY_PATH="${RUNNER_TEMP}/terraform-linter-${GITHUB_SHA:0:7}"
@@ -66,13 +69,6 @@ runs:
         else
           echo "::error ::Unsupported system architecture ${RUNNER_ARCH}"
           exit 1
-        fi
-
-        TAG="${VERSION}"
-        if [[ "${VERSION}" == "latest" ]]; then
-          TAG="" # intentionally empty
-        elif [[ "${VERSION:0:1}" != "v" ]]; then
-          TAG="v${VERSION}"
         fi
 
         # Download the file
