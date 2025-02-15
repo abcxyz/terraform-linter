@@ -15,7 +15,6 @@
 package cli
 
 import (
-	"context"
 	"io"
 	"strings"
 	"testing"
@@ -46,7 +45,7 @@ func TestLintCommand(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 
 			var cmd LintCommand
 			stdin, stdout, _ := cmd.Pipe()
