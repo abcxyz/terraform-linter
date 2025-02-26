@@ -28,6 +28,10 @@ inputs:
   version:
     description: 'Version of terraform-linter to use'
     default: 'latest'
+  ignore_rules:
+    description: 'Comma-separated list of rule IDs to ignore (e.g. "TF001")'
+  exclude_paths:
+    desciption: 'Comma-separated list of files or directories to exclude from linting'
 
 runs:
   using: 'composite'
@@ -44,5 +48,7 @@ runs:
       shell: 'bash'
       env:
         LINT_PATHS: '${{ inputs.directory || inputs.paths }}'
+        TFLINT_IGNORE_RULES: '${{ inputs.ignore_rules }}'
+        TFLINT_EXCLUDE_PATHS: '${{ inputs.exclude_paths }}'
       run: |-
         ${{ steps.download.outputs.binary-path }} lint ${LINT_PATHS}
