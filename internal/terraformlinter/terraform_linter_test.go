@@ -586,6 +586,20 @@ moved {
 }
 			`,
 		},
+		// https://github.com/abcxyz/terraform-linter/issues/17
+		{
+			name: "project_id_attribute_map",
+			content: `
+module "mymodule" {
+  source = "modules/mymodule"
+
+  some_object = {
+    folder_id  = "1234"
+		project_id = "5678"
+  }
+}
+			`,
+		},
 	}
 
 	for _, tc := range cases {
