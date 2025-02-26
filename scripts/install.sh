@@ -32,7 +32,7 @@ elif [[ "${RUNNER_OS}" == "Windows" ]]; then
   OS="windows"
   BINARY_PATH="${BINARY_PATH}.exe"
 else
-  echo "::error ::Unsupported operating system ${RUNNER_OS}"
+  echo "::error::Unsupported operating system ${RUNNER_OS}"
   exit 1
 fi
 
@@ -42,7 +42,7 @@ if [[ "${RUNNER_ARCH}" == "X64" ]]; then
 elif [[ "${RUNNER_ARCH}" == "ARM64" ]]; then
   ARCH="arm64"
 else
-  echo "::error ::Unsupported system architecture ${RUNNER_ARCH}"
+  echo "::error::Unsupported system architecture ${RUNNER_ARCH}"
   exit 1
 fi
 

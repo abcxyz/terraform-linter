@@ -15,513 +15,438 @@
 package terraformlinter
 
 import (
+	"bytes"
+	"fmt"
+	"strings"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 func TestTerraformLinter_FindViolations(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name     string
-		content  string
-		filename string
-		expect   []*ViolationInstance
+		name    string
+		content string
+		expect  string
 	}{
 		{
 			name: "no_special_attributes",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+	service            = "run.googleapis.com"
+	disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "for_each_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					for_each = toset(["name"])
+resource "google_project_service" "run_api" {
+  for_each = toset(["name"])
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "for_each_missing_newline",
 			content: `
-				resource "google_project_service" "run_api" {
-					for_each = toset(["name"])
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  for_each           = toset(["name"])
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF051: Meta block must have an additional newline separating it from the next section.
+  service            = "run.googleapis.com"
+  ^
+`,
 		},
 		{
 			name: "for_each_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					for_each = toset(["name"])
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service            = "run.googleapis.com"
+  for_each           = toset(["name"])
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "for_each" must be in the meta block at the top of the definition.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-			},
+			expect: `
+test.tf:5:3: TF051: Meta block must have an additional newline separating it from the next section.
+  disable_on_destroy = true
+  ^
+
+test.tf:4:3: TF100: Attribute must be in the meta block at the top of the definition.
+  for_each           = toset(["name"])
+  ^
+`,
 		},
 		{
 			name: "count_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					count = 3
+resource "google_project_service" "run_api" {
+  count = 3
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "count_missing_newline",
 			content: `
-				resource "google_project_service" "run_api" {
-					count = 3
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  count              = 3
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF051: Meta block must have an additional newline separating it from the next section.
+  service            = "run.googleapis.com"
+  ^
+`,
 		},
 		{
 			name: "count_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					count = 3
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service            = "run.googleapis.com"
+  count              = 3
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "count" must be in the meta block at the top of the definition.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-			},
+			expect: `
+test.tf:5:3: TF051: Meta block must have an additional newline separating it from the next section.
+  disable_on_destroy = true
+  ^
+
+test.tf:4:3: TF100: Attribute must be in the meta block at the top of the definition.
+  count              = 3
+  ^
+`,
 		},
 		{
 			name: "provider_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					provider = "some_provider"
+resource "google_project_service" "run_api" {
+  provider = "some_provider"
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "provider_missing_newline",
 			content: `
-				resource "google_project_service" "run_api" {
-					provider = "some_provider"
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  provider           = "some_provider"
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF051: Meta block must have an additional newline separating it from the next section.
+  service            = "run.googleapis.com"
+  ^
+`,
 		},
 		{
 			name: "provider_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					provider = "some_provider"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service            = "run.googleapis.com"
+  provider           = "some_provider"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "provider" must be in the meta block at the top of the definition.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-			},
+			expect: `
+test.tf:5:3: TF051: Meta block must have an additional newline separating it from the next section.
+  disable_on_destroy = true
+  ^
+
+test.tf:4:3: TF100: Attribute must be in the meta block at the top of the definition.
+  provider           = "some_provider"
+  ^
+`,
 		},
 		{
 			name: "project_correct_no_meta_block",
 			content: `
-				resource "google_project_service" "run_api" {
-					project = "some_project_id"
+resource "google_project_service" "run_api" {
+  project = "some_project_id"
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "project_correct_meta_block",
 			content: `
-				resource "google_project_service" "run_api" {
-					for_each = toset(["name"])
+resource "google_project_service" "run_api" {
+  for_each = toset(["name"])
 
-					project = "some_project_id"
+  project = "some_project_id"
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "project_missing_newline",
 			content: `
-				resource "google_project_service" "run_api" {
-					project = "some_project_id"
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  project            = "some_project_id"
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The provider specific attributes must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF050: Provider-specific attributes must have an additional newline separating them from the next section.
+  service            = "run.googleapis.com"
+  ^
+`,
 		},
 		{
 			name: "project_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					project = "some_project_id"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service            = "run.googleapis.com"
+  project            = "some_project_id"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "project" must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The provider specific attributes must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-			},
+			expect: `
+test.tf:5:3: TF050: Provider-specific attributes must have an additional newline separating them from the next section.
+  disable_on_destroy = true
+  ^
+
+test.tf:4:3: TF101: Attribute must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.
+  project            = "some_project_id"
+  ^
+`,
 		},
 		{
 			name: "depends_on_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-					depends_on = [
-						"something"
-					]
-				}
+resource "google_project_service" "run_api" {
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+  depends_on = [
+    "something"
+  ]
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "depends_on_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					depends_on = [
-						"something"
-					]
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service = "run.googleapis.com"
+  depends_on = [
+    "something"
+  ]
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "depends_on" must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF199: Attribute must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."
+  depends_on = [
+  ^
+`,
 		},
 		{
 			name: "lifecycle_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-					lifecycle = {
-						prevent_destroy = true
-					}
-				}
+resource "google_project_service" "run_api" {
+  service = "run.googleapis.com"
+  disable_on_destroy = true
+  lifecycle {
+    prevent_destroy = true
+  }
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "lifecycle_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					lifecycle = {
-						prevent_destroy = true
-					}
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service = "run.googleapis.com"
+  lifecycle {
+    prevent_destroy = true
+  }
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "lifecycle" must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF199: Attribute must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."
+  lifecycle {
+  ^
+`,
 		},
 		{
 			name: "trailing_mix_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-					depends_on = [
-						"something"
-					]
-					lifecycle = {
-						prevent_destroy = true
-					}
-				}
+resource "google_project_service" "run_api" {
+	service = "run.googleapis.com"
+	disable_on_destroy = true
+	depends_on = [
+		"something"
+	]
+	lifecycle {
+		prevent_destroy = true
+	}
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "trailing_mix_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-					lifecycle = {
-						prevent_destroy = true
-					}
-					depends_on = [
-						"something"
-					]
-				}
+resource "google_project_service" "run_api" {
+  service = "run.googleapis.com"
+  disable_on_destroy = true
+  lifecycle {
+    prevent_destroy = true
+  }
+  depends_on = [
+    "something"
+  ]
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "lifecycle" must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-				{
-					Message: `The attribute "depends_on" must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."`,
-					Path:    "/test/test.tf",
-					Line:    8,
-				},
-			},
+			expect: `
+test.tf:5:3: TF199: Attribute must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."
+  lifecycle {
+  ^
+
+test.tf:8:3: TF199: Attribute must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."
+  depends_on = [
+  ^
+`,
 		},
 		{
 			name: "source_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					source = "http://somerepo"
+resource "google_project_service" "run_api" {
+  source = "http://somerepo"
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+  service = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "source_missing_newline",
 			content: `
-				resource "google_project_service" "run_api" {
-					source = "http://somerepo"
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  source             = "http://somerepo"
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-			},
+			expect: `
+test.tf:4:3: TF051: Meta block must have an additional newline separating it from the next section.
+  service            = "run.googleapis.com"
+  ^
+`,
 		},
 		{
 			name: "source_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					service = "run.googleapis.com"
-					source = "http://somerepo"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run_api" {
+  service            = "run.googleapis.com"
+  source             = "http://somerepo"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "source" must be in the meta block at the top of the definition.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-			},
+			expect: `
+test.tf:5:3: TF051: Meta block must have an additional newline separating it from the next section.
+  disable_on_destroy = true
+  ^
+
+test.tf:4:3: TF100: Attribute must be in the meta block at the top of the definition.
+  source             = "http://somerepo"
+  ^
+`,
 		},
 		{
 			name: "all_correct",
 			content: `
-				resource "google_project_service" "run_api" {
-					for_each = toset(["name"])
-					provider = "someprovider"
+resource "google_project_service" "run_api" {
+  for_each = toset(["name"])
+  provider = "someprovider"
 
-					organization = "abcxyz"
-					folder = "fid"
-					project = "pid"
-					project_id = "pid"
+  organization = "abcxyz"
+  folder       = "fid"
+  project      = "pid"
+  project_id   = "pid"
 
-					service = "run.googleapis.com"
-					disable_on_destroy = true
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
 
-					depends_on = [
-						"something"
-					]
-					lifecycle = {
-						prevent_destroy = true
-					}
-				}
+  depends_on = [
+    "something"
+  ]
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
 				`,
-			filename: "/test/test.tf",
-			expect:   nil,
 		},
 		{
 			name: "mixed_out_of_order",
 			content: `
-				resource "google_project_service" "run_api" {
-					folder = "fid"
-					provider = "someprovider"
-					project = "pid"
-					for_each = toset(["name"])
-					project_id = "pid"
-					service = "run.googleapis.com"
-					lifecycle = {
-						prevent_destroy = true
-					}
-					organization = "abcxyz"
-					disable_on_destroy = true
-					depends_on = [
-						"something"
-					]
-				}
+resource "google_project_service" "run_api" {
+  folder     = "fid"
+  provider   = "someprovider"
+  project    = "pid"
+  for_each   = toset(["name"])
+  project_id = "pid"
+  service    = "run.googleapis.com"
+  lifecycle {
+    prevent_destroy = true
+  }
+  organization       = "abcxyz"
+  disable_on_destroy = true
+  depends_on = [
+    "something"
+  ]
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "provider" must be in the meta block at the top of the definition.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-				{
-					Message: `The attribute "for_each" must be in the meta block at the top of the definition.`,
-					Path:    "/test/test.tf",
-					Line:    6,
-				},
-				{
-					Message: `The meta block must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    7,
-				},
-				{
-					Message: `The provider specific attributes must have an additional newline separating it from the next section.`,
-					Path:    "/test/test.tf",
-					Line:    8,
-				},
-				{
-					Message: `The attribute "lifecycle" must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."`,
-					Path:    "/test/test.tf",
-					Line:    9,
-				},
-				{
-					Message: `The attribute "organization" must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.`,
-					Path:    "/test/test.tf",
-					Line:    12,
-				},
-			},
+			expect: `
+test.tf:8:3: TF050: Provider-specific attributes must have an additional newline separating them from the next section.
+  service    = "run.googleapis.com"
+  ^
+
+test.tf:5:3: TF051: Meta block must have an additional newline separating it from the next section.
+  project    = "pid"
+  ^
+
+test.tf:7:3: TF051: Meta block must have an additional newline separating it from the next section.
+  project_id = "pid"
+  ^
+
+test.tf:4:3: TF100: Attribute must be in the meta block at the top of the definition.
+  provider   = "someprovider"
+  ^
+
+test.tf:6:3: TF100: Attribute must be in the meta block at the top of the definition.
+  for_each   = toset(["name"])
+  ^
+
+test.tf:12:3: TF101: Attribute must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.
+  organization       = "abcxyz"
+  ^
+
+test.tf:9:3: TF199: Attribute must be at the bottom of the resource definition and in the order "depends_on" then "lifecycle."
+  lifecycle {
+  ^
+`,
 		},
 		// Terraform AST treats comments on a line differently than any other token.
 		// Comments absorb the newline character instead of treating it as a separate token.
@@ -530,114 +455,98 @@ func TestTerraformLinter_FindViolations(t *testing.T) {
 		{
 			name: "repro_panic_on_comment_at_end_of_line",
 			content: `
-				resource "a" "b" {
-					c = var.d # e
-				}
+resource "a" "b" {
+  c = var.d # e
+}
 			`,
 		},
 		{
 			name: "resource with hyphen in name",
 			content: `
-				resource "google_project_service" "run-api" {
-					service = "run.googleapis.com"
-					disable_on_destroy = true
-				}
+resource "google_project_service" "run-api" {
+  service            = "run.googleapis.com"
+  disable_on_destroy = true
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The resource "run-api" must not contain a "-" in its name.`,
-					Path:    "/test/test.tf",
-					Line:    2,
-				},
-			},
+			expect: `
+test.tf:2:36: TF001: Resource name must not contain a "-". Prefer underscores ("_") instead.
+resource "google_project_service" "run-api" {
+                                   ^
+`,
 		},
 		{
 			name: "module with hyphen in name",
 			content: `
-				module "my-cool-module" {
-					x = "some value"
-				}
+module "my-cool-module" {
+  x = "some value"
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The resource "my-cool-module" must not contain a "-" in its name.`,
-					Path:    "/test/test.tf",
-					Line:    2,
-				},
-			},
+			expect: `
+test.tf:2:9: TF001: Resource name must not contain a "-". Prefer underscores ("_") instead.
+module "my-cool-module" {
+        ^
+`,
 		},
 		{
 			name: "variable with hyphen in name",
 			content: `
-				variable "billing-account" {
-					description = "The ID of the billing account to associate projects with"
-					type        = string
-				}
+variable "billing-account" {
+  description = "The ID of the billing account to associate projects with"
+  type        = string
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The resource "billing-account" must not contain a "-" in its name.`,
-					Path:    "/test/test.tf",
-					Line:    2,
-				},
-			},
+			expect: `
+test.tf:2:11: TF001: Resource name must not contain a "-". Prefer underscores ("_") instead.
+variable "billing-account" {
+          ^
+`,
 		},
 		{
 			name: "output with hyphen in name",
 			content: `
-				output "my-output" {
-					value       = module.my-output
-				}
+output "my-output" {
+  value = module.my-output
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The resource "my-output" must not contain a "-" in its name.`,
-					Path:    "/test/test.tf",
-					Line:    2,
-				},
-			},
+			expect: `
+test.tf:2:9: TF001: Resource name must not contain a "-". Prefer underscores ("_") instead.
+output "my-output" {
+        ^
+`,
 		},
 		{
 			name: "provider_project_at_top",
 			content: `
-				resource "google_project_service" "run_api" {
-					project = "pid"
-					folder = "fid"
-					organization = "abcxyz"
-				}
+resource "google_project_service" "run_api" {
+  project      = "pid"
+  folder       = "fid"
+  organization = "abcxyz"
+}
 				`,
-			filename: "/test/test.tf",
-			expect: []*ViolationInstance{
-				{
-					Message: `The attribute "folder" must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.`,
-					Path:    "/test/test.tf",
-					Line:    4,
-				},
-				{
-					Message: `The attribute "organization" must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.`,
-					Path:    "/test/test.tf",
-					Line:    5,
-				},
-			},
+			expect: `
+test.tf:4:3: TF101: Attribute must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.
+  folder       = "fid"
+  ^
+
+test.tf:5:3: TF101: Attribute must be below any meta attributes (e.g. "for_each", "count") but above all other attributes. Attributes must be ordered organization > folder > project.
+  organization = "abcxyz"
+  ^
+`,
 		},
 		// Issue #87 - source and for_each are both valid at the top and shouldn't
 		// cause violations if both are present.
 		{
 			name: "for_each_and_source_both_present_repro",
 			content: `
-				module "some_module" {
-					source = "git://https://github.com/abc/def"
-					for_each = local.mylocal
-				}
+module "some_module" {
+  source   = "git://https://github.com/abc/def"
+  for_each = local.mylocal
+}
 
-				module "some_module" {
-					for_each = local.mylocal
-					source = "git://https://github.com/abc/def"
-				}
+module "some_module" {
+  for_each = local.mylocal
+  source   = "git://https://github.com/abc/def"
+}
 			`,
 		},
 		{
@@ -647,34 +556,34 @@ func TestTerraformLinter_FindViolations(t *testing.T) {
 			// causing a false violation
 			name: "special_ident_tokens_in_locals",
 			content: `
-			  locals {
-				ingestion_backed_client_env_vars = {
-				  "AUDIT_CLIENT_BACKEND_REMOTE_ADDRESS" : "${trimprefix(module.server_service.audit_log_server_url, "https://")}:443",
-				  "AUDIT_CLIENT_CONDITION_REGEX_PRINCIPAL_INCLUDE" : ".*",
-				}
-			  }
+locals {
+  ingestion_backed_client_env_vars = {
+    "AUDIT_CLIENT_BACKEND_REMOTE_ADDRESS" : "${trimprefix(module.server_service.audit_log_server_url, "https://")}:443",
+    "AUDIT_CLIENT_CONDITION_REGEX_PRINCIPAL_INCLUDE" : ".*",
+  }
+}
 
-			  resource "google_cloud_run_service" "ingestion_backend_client_services" {
-				for_each = var.client_images
-			  }
+resource "google_cloud_run_service" "ingestion_backend_client_services" {
+  for_each = var.client_images
+}
 			`,
 		},
 		{
 			name: "allows_import_blocks",
 			content: `
-			import {
-			  to = module.project.google_project.default
-			  id = "project-id-with-hyphens"
-			}
+import {
+	to = module.project.google_project.default
+	id = "project-id-with-hyphens"
+}
 			`,
 		},
 		{
 			name: "allows_moved_blocks",
 			content: `
-				moved {
-					from = google_bigquery_table_iam_member.editors["serviceAccount:service-123456789@dataflow-service-producer-prod.iam.gserviceaccount.com"]
-					to   = module.project.google_bigquery_table_iam_member.editors["serviceAccount:service-123456789@dataflow-service-producer-prod.iam.gserviceaccount.com"]
-				}
+moved {
+	from = google_bigquery_table_iam_member.editors["serviceAccount:service-123456789@dataflow-service-producer-prod.iam.gserviceaccount.com"]
+	to   = module.project.google_bigquery_table_iam_member.editors["serviceAccount:service-123456789@dataflow-service-producer-prod.iam.gserviceaccount.com"]
+}
 			`,
 		},
 	}
@@ -683,12 +592,24 @@ func TestTerraformLinter_FindViolations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			results, err := findViolations([]byte(tc.content), tc.filename)
+			linter, err := New(nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diff := cmp.Diff(tc.expect, results); diff != "" {
-				t.Errorf("results (-want,+got):\n%s", diff)
+
+			if err := linter.findViolations([]byte(tc.content), "./test.tf"); err != nil {
+				t.Fatal(err)
+			}
+
+			findings := linter.Findings()
+
+			var buf bytes.Buffer
+			for _, finding := range findings {
+				fmt.Fprintln(&buf, finding.String())
+			}
+
+			if got, want := strings.TrimSpace(buf.String()), strings.TrimSpace(tc.expect); got != want {
+				t.Errorf("expected\n\n%s\n\nto be\n\n%s", got, want)
 			}
 		})
 	}

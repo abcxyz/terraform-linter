@@ -30,6 +30,9 @@ var _ cli.Command = (*LintCommand)(nil)
 // LintCommand lints terraform configurations.
 type LintCommand struct {
 	cli.BaseCommand
+
+	excludePaths []string
+	ignoreRules  []string
 }
 
 func (c *LintCommand) Desc() string {
@@ -61,7 +64,34 @@ func (c *LintCommand) PredictArgs() complete.Predictor {
 }
 
 func (c *LintCommand) Flags() *cli.FlagSet {
-	return cli.NewFlagSet()
+	set := cli.NewFlagSet()
+
+	// Command options
+	f := set.NewSection("COMMAND OPTIONS")
+
+	f.StringSliceVar(&cli.StringSliceVar{
+		Name: "exclude-path",
+		Usage: "List of Terraform files or directories to exclude from linting. " +
+			"This option can be specified multiple times to exclude multiple paths " +
+			"or directories.",
+		Example: "<pattern>",
+		Predict: predict.Or(
+			predict.Dirs(""),
+			predict.Files("*.tf"),
+			predict.Files("*.tf.json"),
+		),
+		Target: &c.excludePaths,
+	})
+
+	f.StringSliceVar(&cli.StringSliceVar{
+		Name: "ignore-rule",
+		Usage: "List of linter rules to ignore. This option can be specified " +
+			"multiple times to ignore multiple rules.",
+		Example: "<rule>",
+		Target:  &c.ignoreRules,
+	})
+
+	return set
 }
 
 func (c *LintCommand) Run(ctx context.Context, args []string) error {
@@ -75,5 +105,32 @@ func (c *LintCommand) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("expected at least one argument, got %d", got)
 	}
 
-	return terraformlinter.RunLinter(ctx, args) //nolint:wrapcheck // Want passthrough
+	linter, err := terraformlinter.New(&terraformlinter.Config{
+		ExcludePaths: c.excludePaths,
+		IgnoreRules:  c.ignoreRules,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to configure linter: %w", err)
+	}
+
+	if err := linter.Run(ctx, args); err != nil {
+		return fmt.Errorf("failed to run linter: %w", err)
+	}
+
+	findings := linter.Findings()
+
+	// Print out each violation.
+	// TODO(sethvargo): support other formats
+	for _, finding := range findings {
+		fmt.Fprintln(c.Stdout(), finding.String())
+	}
+
+	switch l := len(findings); l {
+	case 0:
+		return nil
+	case 1:
+		return fmt.Errorf("found 1 violation")
+	default:
+		return fmt.Errorf("found %d violations", l)
+	}
 }
