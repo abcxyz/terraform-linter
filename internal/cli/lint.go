@@ -75,6 +75,7 @@ func (c *LintCommand) Flags() *cli.FlagSet {
 			"This option can be specified multiple times to exclude multiple paths " +
 			"or directories.",
 		Example: "<pattern>",
+		EnvVar:  "TFLINT_EXCLUDE_PATHS",
 		Predict: predict.Or(
 			predict.Dirs(""),
 			predict.Files("*.tf"),
@@ -88,6 +89,7 @@ func (c *LintCommand) Flags() *cli.FlagSet {
 		Usage: "List of linter rules to ignore. This option can be specified " +
 			"multiple times to ignore multiple rules.",
 		Example: "<rule>",
+		EnvVar:  "TFLINT_IGNORE_RULES",
 		Target:  &c.ignoreRules,
 	})
 
