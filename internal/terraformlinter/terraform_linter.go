@@ -17,6 +17,8 @@
 package terraformlinter
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -24,11 +26,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/abcxyz/pkg/workerpool"
+	"github.com/abcxyz/terraform-linter/internal/terraformlinter/rules"
 )
 
 // Top level terraform types to validate.
@@ -100,55 +104,147 @@ var positionMap = map[string]tokenPosition{
 	attrLifecycle:              Trailing,
 }
 
-// RunLinter executes the specified linter for a set of files.
-func RunLinter(ctx context.Context, paths []string) error {
-	pool := workerpool.New[[]*ViolationInstance](nil)
+type Finding struct {
+	rule     *rules.Rule
+	token    hclsyntax.Token
+	contents []byte
+}
+
+// String reports a human-friendly version of the finding in the format:
+//
+//	<path>:<line>:<column>: <rule-id>: <message>
+//	<snippet>
+//	^
+//
+// For example:
+//
+//	folder/file.tf:37:8: TF001: Things are broken
+//	resource "foo" "bar-baz" {
+//	                   ^
+func (f *Finding) String() string {
+	filepath := strings.TrimPrefix(f.token.Range.Filename, "./")
+	ruleID := f.rule.ID
+	description := f.rule.Description
+	line := f.token.Range.Start.Line
+	column := f.token.Range.Start.Column
+
+	return fmt.Sprintf("%s:%d:%d: %s: %s\n%s\n%*s\n",
+		filepath, line, column, ruleID, description,
+		f.contents,
+		column, "^")
+}
+
+// Config is the input to creating a new linter.
+type Config struct {
+	ExcludePaths []string
+	IgnoreRules  []string
+}
+
+// Linter is an instance of a linter type.
+type Linter struct {
+	excludePaths []string
+	ignoreRules  map[string]struct{}
+
+	findings     []*Finding
+	findingsLock sync.Mutex
+}
+
+// New creates a new instance of a linter with the given config.
+func New(c *Config) (*Linter, error) {
+	if c == nil {
+		c = new(Config)
+	}
+
+	ignoreRules := make(map[string]struct{}, len(c.IgnoreRules))
+	for _, v := range c.IgnoreRules {
+		ignoreRules[v] = struct{}{}
+	}
+
+	excludePaths := append([]string{}, c.ExcludePaths...)
+
+	return &Linter{
+		excludePaths: excludePaths,
+		ignoreRules:  ignoreRules,
+	}, nil
+}
+
+// AddFinding adds a finding to the linter, skipping any ignored rules. It is
+// safe for calling concurrently.
+func (l *Linter) AddFinding(r *rules.Rule, lines [][]byte, t hclsyntax.Token) {
+	if _, ok := l.ignoreRules[r.ID]; ok {
+		return
+	}
+
+	l.findingsLock.Lock()
+	defer l.findingsLock.Unlock()
+	l.findings = append(l.findings, &Finding{
+		rule:     r,
+		token:    t,
+		contents: lines[t.Range.Start.Line-1],
+	})
+}
+
+// Findings returns a all the findings, sorted by filename and then Rule ID.
+func (l *Linter) Findings() []*Finding {
+	l.findingsLock.Lock()
+	defer l.findingsLock.Unlock()
+
+	slices.SortFunc(l.findings, func(a, b *Finding) int {
+		if af, bf := a.token.Range.Filename, b.token.Range.Filename; af != bf {
+			return cmp.Compare(af, bf)
+		}
+
+		if ai, bi := a.rule.ID, b.rule.ID; ai != bi {
+			return cmp.Compare(ai, bi)
+		}
+
+		if al, bl := a.token.Range.Start.Line, b.token.Range.Start.Line; al != bl {
+			return cmp.Compare(al, bl)
+		}
+
+		if ac, bc := a.token.Range.Start.Column, b.token.Range.Start.Column; ac != bc {
+			return cmp.Compare(ac, bc)
+		}
+
+		return cmp.Compare(a.rule.Description, b.rule.Description)
+	})
+
+	return l.findings
+}
+
+// Run executes the specified linter for a set of files.
+func (l *Linter) Run(ctx context.Context, paths []string) error {
+	pool := workerpool.New[*workerpool.Void](nil)
 
 	// Process each provided path in parallel for violations.
 	for _, path := range paths {
-		if err := pool.Do(ctx, func() ([]*ViolationInstance, error) {
-			instances, err := lint(path)
-			if err != nil {
-				err = fmt.Errorf("error linting file %q: %w", path, err)
+		if err := pool.Do(ctx, func() (*workerpool.Void, error) {
+			if err := l.lint(path); err != nil {
+				return nil, fmt.Errorf("error linting file %q: %w", path, err)
 			}
-			return instances, err
+			return nil, nil
 		}); err != nil {
 			return fmt.Errorf("failed to queue work: %w", err)
 		}
 	}
 
 	// Wait for everything to finish.
-	results, err := pool.Done(ctx)
-	if err != nil {
-		return fmt.Errorf("linting failed: %w", err)
+	if _, err := pool.Done(ctx); err != nil {
+		return fmt.Errorf("failed to lint: %w", err)
 	}
-	var violations []*ViolationInstance
-	for _, result := range results {
-		violations = append(violations, result.Value...)
-	}
-	slices.SortFunc(violations, ViolationInstanceSorter)
 
-	// Print out each violation.
-	for _, instance := range violations {
-		// Output as errorformat "%f:%l: %m" (file:line: message)
-		fmt.Printf("%s:%d: %s\n", instance.Path, instance.Line, instance.Message)
-	}
-	switch l := len(violations); l {
-	case 0:
-		return nil
-	case 1:
-		return fmt.Errorf("found 1 violation")
-	default:
-		return fmt.Errorf("found %d violations", l)
-	}
+	return nil
 }
 
-// lint reads a path and determines if it is a file or a directory.
-// When it finds a file it reads it and checks it for violations.
-// When it finds a directory it calls itself recursively.
-func lint(path string) ([]*ViolationInstance, error) {
-	instances := []*ViolationInstance{}
+// lint reads a path and determines if it is a file or a directory. When it
+// finds a file it reads it and checks it for violations. When it finds a
+// directory it calls itself recursively.
+func (l *Linter) lint(path string) error {
 	if err := filepath.WalkDir(path, func(path string, d os.DirEntry, err error) error {
+		if l.excludedPath(path) {
+			return filepath.SkipDir
+		}
+
 		if err != nil {
 			return err
 		}
@@ -158,34 +254,33 @@ func lint(path string) ([]*ViolationInstance, error) {
 				if err != nil {
 					return fmt.Errorf("error reading file %q: %w", path, err)
 				}
-				results, err := findViolations(content, path)
-				if err != nil {
+				if err := l.findViolations(content, path); err != nil {
 					return fmt.Errorf("error linting file %q: %w", path, err)
 				}
-				instances = append(instances, results...)
 			}
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("error walking path %q: %w", path, err)
+		return fmt.Errorf("error walking path %q: %w", path, err)
 	}
-	return instances, nil
+	return nil
 }
 
 // findViolations inspects a set of bytes that represent hcl from a terraform configuration file
 // looking for attributes of a resource and ensuring that the ordering matches our style guide.
-func findViolations(content []byte, path string) ([]*ViolationInstance, error) {
+func (l *Linter) findViolations(content []byte, path string) error {
 	tokens, diags := hclsyntax.LexConfig(content, path, hcl.Pos{Byte: 0, Line: 1, Column: 1})
 	if diags.HasErrors() {
 		// diags.Error is just a string, but the golangci linter gets angry that we aren't using
 		// %w in the error message. Attempts to use the nolint tag also get flagged as not needed
 		// in newer versions so to appease the linter we wrap the string in an error.
-		return nil, fmt.Errorf("error lexing hcl file contents: [%w]", errors.New(diags.Error()))
+		return fmt.Errorf("error lexing hcl file contents: [%w]", errors.New(diags.Error()))
 	}
+
+	lines := bytes.Split(content, []byte("\n"))
 
 	inBlock := false
 	depth, start := 0, 0
-	var instances []*ViolationInstance
 	// First break apart the terraform into the major blocks of resources / modules
 	for idx, token := range tokens {
 		if token.Bytes == nil {
@@ -205,12 +300,13 @@ func findViolations(content []byte, path string) ([]*ViolationInstance, error) {
 			start = idx
 			depth = 0
 		}
+
 		// If we are in a block, look for the closing braces to find the end
 		if inBlock {
 			// Before dropping into the block itself, look for names that have a hyphen
 			if depth == 0 && token.Type == hclsyntax.TokenQuotedLit {
 				if strings.Contains(contents, "-") {
-					instances = append(instances, newHyphenInNameViolation(token, contents))
+					l.AddFinding(rules.HyphenInName, lines, token)
 				}
 			}
 			if token.Type == hclsyntax.TokenOBrace {
@@ -222,18 +318,17 @@ func findViolations(content []byte, path string) ([]*ViolationInstance, error) {
 				if depth == 0 {
 					inBlock = false
 					// Validate the block against the rules
-					results := validateBlock(tokens[start : idx+1])
-					instances = append(instances, results...)
+					l.validateBlock(lines, tokens[start:idx+1])
 				}
 			}
 		}
 	}
-	return instances, nil
+	return nil
 }
 
 // validateBlock scans a block of terraform looking for violations
 // of our style guide.
-func validateBlock(tokens hclsyntax.Tokens) []*ViolationInstance {
+func (l *Linter) validateBlock(lines [][]byte, tokens hclsyntax.Tokens) {
 	var attrs []tokenAttr
 	var token hclsyntax.Token
 	for len(tokens) > 0 {
@@ -266,7 +361,11 @@ func validateBlock(tokens hclsyntax.Tokens) []*ViolationInstance {
 					if !ok {
 						position = Ignored
 					}
-					attrs = append(attrs, tokenAttr{tokenPos: position, token: token, trailingNewline: trailingNewline})
+					attrs = append(attrs, tokenAttr{
+						tokenPos:        position,
+						token:           token,
+						trailingNewline: trailingNewline,
+					})
 					skipping = false
 				}
 				// Reached the end of the file
@@ -276,38 +375,39 @@ func validateBlock(tokens hclsyntax.Tokens) []*ViolationInstance {
 			}
 		}
 	}
-	return generateViolations(attrs)
+
+	l.generateViolations(lines, attrs)
 }
 
-func generateViolations(idents []tokenAttr) []*ViolationInstance {
-	var instances []*ViolationInstance
+func (l *Linter) generateViolations(lines [][]byte, idents []tokenAttr) {
 	var lastAttr tokenAttr
+
 	for pos, token := range idents {
 		contents := string(token.token.Bytes)
 		switch contents {
 		// for_each, count and source should be at the top
 		case attrForEach, attrCount, attrSource:
 			if pos != 0 && lastAttr.tokenPos != LeadingStart {
-				instances = append(instances, newLeadingMetaBlockAttributeViolation(token.token, contents))
+				l.AddFinding(rules.LeadingMetaBlockAttribute, lines, token.token)
 			}
 		// provider is at the top but below for_each or count if they exist
 		case attrProvider:
 			if pos > 0 && lastAttr.tokenPos != LeadingStart {
-				instances = append(instances, newLeadingMetaBlockAttributeViolation(token.token, contents))
+				l.AddFinding(rules.LeadingMetaBlockAttribute, lines, token.token)
 			}
 		case attrDependsOn:
 			// depends_on somewhere above where it should be
 			if pos < len(idents)-1 && idents[len(idents)-1].tokenPos != Trailing {
-				instances = append(instances, newTrailingMetaBlockAttributeViolation(token.token, contents))
+				l.AddFinding(rules.TrailingMetaBlockAttribute, lines, token.token)
 			}
 			// depends_on after lifecycle
 			if pos == len(idents)-1 && lastAttr.tokenPos == Trailing {
-				instances = append(instances, newTrailingMetaBlockAttributeViolation(token.token, contents))
+				l.AddFinding(rules.TrailingMetaBlockAttribute, lines, token.token)
 			}
 		case attrLifecycle:
 			// lifecycle should be last
 			if pos != len(idents)-1 {
-				instances = append(instances, newTrailingMetaBlockAttributeViolation(token.token, contents))
+				l.AddFinding(rules.TrailingMetaBlockAttribute, lines, token.token)
 			}
 		// All provider specific entries follow the same logic. Should be below the metadata segment and above everything else
 		// Expect order
@@ -318,39 +418,46 @@ func generateViolations(idents []tokenAttr) []*ViolationInstance {
 			attrProviderOrganizationID,
 			attrProviderOrgID:
 			if lastAttr.tokenPos > ProviderStart {
-				instances = append(instances, newProviderAttributesViolation(token.token, contents))
+				l.AddFinding(rules.ProviderAttributes, lines, token.token)
 			}
 			if (lastAttr.tokenPos == LeadingStart || lastAttr.tokenPos == LeadingEnd) && !lastAttr.trailingNewline {
-				instances = append(instances, newMetaBlockNewlineViolation(token.token))
+				l.AddFinding(rules.MetaBlockNewline, lines, token.token)
 			}
 		case attrProviderFolder,
 			attrProviderFolderID:
 			if lastAttr.tokenPos > ProviderCenter {
-				instances = append(instances, newProviderAttributesViolation(token.token, contents))
+				l.AddFinding(rules.ProviderAttributes, lines, token.token)
 			}
 			if (lastAttr.tokenPos == LeadingStart || lastAttr.tokenPos == LeadingEnd) && !lastAttr.trailingNewline {
-				instances = append(instances, newMetaBlockNewlineViolation(token.token))
+				l.AddFinding(rules.MetaBlockNewline, lines, token.token)
 			}
 		case attrProviderProject,
 			attrProviderProjectID:
 			if lastAttr.tokenPos > ProviderEnd {
-				instances = append(instances, newProviderAttributesViolation(token.token, contents))
+				l.AddFinding(rules.ProviderAttributes, lines, token.token)
 			}
 			if (lastAttr.tokenPos == LeadingStart || lastAttr.tokenPos == LeadingEnd) && !lastAttr.trailingNewline {
-				instances = append(instances, newMetaBlockNewlineViolation(token.token))
+				l.AddFinding(rules.MetaBlockNewline, lines, token.token)
 			}
 		// Check for trailing newlines where required
 		default:
 			if lastAttr.tokenPos == ProviderEnd && !lastAttr.trailingNewline {
-				instances = append(instances, newProviderNewlineViolation(token.token, contents))
+				l.AddFinding(rules.ProviderNewline, lines, token.token)
 			}
 			if (lastAttr.tokenPos == LeadingStart || lastAttr.tokenPos == LeadingEnd) && !lastAttr.trailingNewline {
-				instances = append(instances, newMetaBlockNewlineViolation(token.token))
+				l.AddFinding(rules.MetaBlockNewline, lines, token.token)
 			}
 		}
 
 		lastAttr = token
 	}
+}
 
-	return instances
+func (l *Linter) excludedPath(pth string) bool {
+	for _, exclude := range l.excludePaths {
+		if match, _ := filepath.Match(exclude, pth); match {
+			return true
+		}
+	}
+	return false
 }
