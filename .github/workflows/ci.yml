@@ -30,13 +30,13 @@ concurrency:
 
 jobs:
   yaml-lint:
-    uses: 'abcxyz/pkg/.github/workflows/yaml-lint.yml@main' # ratchet:exclude
+    uses: 'abcxyz/actions/.github/workflows/yaml-lint.yml@main' # ratchet:exclude
 
   go-lint:
-    uses: 'abcxyz/pkg/.github/workflows/go-lint.yml@main' # ratchet:exclude
+    uses: 'abcxyz/actions/.github/workflows/go-lint.yml@main' # ratchet:exclude
 
   go-test:
-    uses: 'abcxyz/pkg/.github/workflows/go-test.yml@main' # ratchet:exclude
+    uses: 'abcxyz/actions/.github/workflows/go-test.yml@main' # ratchet:exclude
 
   shell-lint:
     runs-on: 'ubuntu-latest'
