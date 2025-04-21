@@ -16,6 +16,9 @@
 
 set -eEuo pipefail
 
+# These are expected to be set externally.
+declare -r RUNNER_TEMP GITHUB_SHA RUNNER_OS RUNNER_ARCH GITHUB_OUTPUT
+
 if [[ -z "${ACTIONS_STEP_DEBUG:-}" ]]; then
   set -x
 fi
