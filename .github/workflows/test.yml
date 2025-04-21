@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: 'ci'
+name: 'test'
 
 on:
   push:
@@ -29,22 +29,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  yaml-lint:
-    uses: 'abcxyz/actions/.github/workflows/yaml-lint.yml@main' # ratchet:exclude
-
-  go-lint:
-    uses: 'abcxyz/actions/.github/workflows/go-lint.yml@main' # ratchet:exclude
-
   go-test:
     uses: 'abcxyz/actions/.github/workflows/go-test.yml@main' # ratchet:exclude
-
-  shell-lint:
-    runs-on: 'ubuntu-latest'
-    steps:
-      - uses: 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' # ratchet:actions/checkout@v4
-      - name: 'Lint Shell'
-        run: |-
-          find . -type f -name "*.sh" -exec shellcheck {} +
 
   linter-test:
     strategy:

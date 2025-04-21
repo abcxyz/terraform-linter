@@ -176,9 +176,8 @@ jobs:
       - name: 'Compress and compute checksums'
         run: |-
           cd dist/
-          FILES="$(find * -type f)"
-          sha256sum ${FILES} > SHA256SUMS
-          sha512sum ${FILES} > SHA512SUMS
+          find ./* -type f -exec sha256sum {} \; > SHA256SUMS
+          find ./* -type f -exec sha512sum {} \; > SHA512SUMS
 
       - name: 'Upload binaries'
         env:
@@ -187,6 +186,7 @@ jobs:
           REPO: '${{ github.repository }}'
         run: |-
           FILES="$(find ./dist -type f)"
+          # shellcheck disable=SC2086
           gh release upload "${RELEASE_VERSION}" ${FILES} \
             --repo "${REPO}"
 
