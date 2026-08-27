@@ -31,7 +31,7 @@ inputs:
   ignore_rules:
     description: 'Comma-separated list of rule IDs to ignore (e.g. "TF001")'
   exclude_paths:
-    desciption: 'Comma-separated list of files or directories to exclude from linting'
+    description: 'Comma-separated list of files or directories to exclude from linting'
 
 runs:
   using: 'composite'
